@@ -4,6 +4,8 @@ if (!base || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('Local i
 const checks=[];
 const check=(label,ok)=>{assert(ok,label);checks.push(label);};
 let r=await fetch(base+'/'); check('Existing handbook root renders',r.status===200 && (await r.text()).includes('uploads.js'));
+r=await fetch(base+'/core.js');check('Public handbook script is anonymously readable',r.status===200 && (await r.text()).includes('HandbookCore'));
+r=await fetch(base+'/papers/week-01/w01-p02_shevlane_extreme_risks.pdf');check('Rights-approved static PDF is anonymously readable',r.status===200 && Buffer.from(await r.arrayBuffer()).subarray(0,4).toString()==='%PDF');
 r=await fetch(base+'/api/materials?week=1');check('Unauthenticated API is denied',r.status===401);
 let identity;
 if(process.env.HANDBOOK_TEST_DIRECT_WORKER==='1'){identity={'oai-authenticated-user-id':'local_test_owner','oai-authenticated-user-email':'test@example.invalid'};}else{
@@ -16,6 +18,14 @@ const form=(bytes=pdf,name='검증용_번역본.pdf')=>{const f=new FormData();f
 r=await request('/api/materials?week=1');check('Authenticated list succeeds',r.status===200);
 r=await request('/api/materials',{method:'POST',headers,body:form()});const created=await r.json();check('Real local R2 upload and optional-title fallback',r.status===201 && created.material?.title==='검증용_번역본.pdf');
 const id=created.material.id;
+r=await fetch(base+'/api/materials/'+encodeURIComponent(id)+'/download');check('Anonymous material download is denied',r.status===401);
+r=await fetch(base+'/api/materials',{method:'POST',headers:{Origin:base,'X-Handbook-Upload':'1',Connection:'close'},body:form()});check('Anonymous material upload is denied',r.status===401);
+if(process.env.HANDBOOK_TEST_DIRECT_WORKER==='1'){
+  const denied={'oai-authenticated-user-id':'unrelated_test_user','oai-authenticated-user-email':'unrelated@example.invalid',Connection:'close'};
+  r=await fetch(base+'/api/materials?week=1',{headers:denied});check('Unrelated signed-in material list is denied',r.status===403);
+  r=await fetch(base+'/api/materials/'+encodeURIComponent(id)+'/download',{headers:denied});check('Unrelated signed-in material download is denied',r.status===403);
+  r=await fetch(base+'/api/materials',{method:'POST',headers:{...denied,Origin:base,'X-Handbook-Upload':'1'},body:form()});check('Unrelated signed-in material upload is denied',r.status===403);
+}
 r=await request('/api/materials?week=1');const listing=await r.json();check('Uploaded material persists in list',listing.materials.some(x=>x.id===id));
 r=await request('/api/materials?week=2');check('Week isolation',!(await r.json()).materials.some(x=>x.id===id));
 r=await request('/api/materials/'+encodeURIComponent(id)+'/download');check('Byte-equal attachment download',r.status===200 && Buffer.from(await r.arrayBuffer()).equals(pdf) && r.headers.get('content-disposition').startsWith('attachment;') && r.headers.get('x-content-type-options')==='nosniff');

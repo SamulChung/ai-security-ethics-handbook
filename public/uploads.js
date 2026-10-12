@@ -41,7 +41,7 @@ function selectionError(draft, limits) {
   return '';
 }
 function getEntry(week) {
-  if (!entries.has(week)) entries.set(week, {week, draft: {file: null, title: '', category: 'translation', rights: false}, materials: [], nextCursor: null, hasLoaded: false, canUpload: false, loading: false, uploading: false, needsCheck: false, message: '', error: '', listError: '', limits: limitsFrom(), listeners: new Set(), loadVersion: 0, loadController: null});
+  if (!entries.has(week)) entries.set(week, {week, draft: {file: null, title: '', category: 'translation', rights: false}, materials: [], nextCursor: null, hasLoaded: false, canUpload: false, accessDenied: false, signInRequired: false, loading: false, uploading: false, needsCheck: false, message: '', error: '', listError: '', limits: limitsFrom(), listeners: new Set(), loadVersion: 0, loadController: null});
   return entries.get(week);
 }
 function emit(entry) { entry.listeners.forEach(listener => listener()); }
@@ -77,6 +77,8 @@ async function refresh(entry, append = false) {
     entry.materials = append ? [...entry.materials, ...materials.filter(value => !entry.materials.some(current => current.id === value.id))] : materials;
     entry.nextCursor = body.nextCursor || null;
     entry.canUpload = body.canUpload;
+    entry.accessDenied = false;
+    entry.signInRequired = false;
     entry.limits = limitsFrom(body.limits);
     entry.hasLoaded = true;
     if (!append) entry.needsCheck = false;
@@ -84,6 +86,9 @@ async function refresh(entry, append = false) {
     if (controller.signal.aborted || version !== entry.loadVersion) return;
     entry.listError = error.message || '자료 목록을 불러오지 못했습니다.';
     entry.canUpload = false;
+    entry.signInRequired = error.status === 401;
+    entry.accessDenied = entry.signInRequired || error.status === 403;
+    if (entry.accessDenied) {entry.materials = []; entry.nextCursor = null; entry.hasLoaded = false;}
   } finally {
     if (version === entry.loadVersion) {
       entry.loading = false;
@@ -111,11 +116,15 @@ async function upload(entry) {
     if (!material) throw Error('업로드 응답을 확인할 수 없습니다. 목록에서 등록 여부를 확인해 주세요.');
     entry.materials = [material, ...entry.materials.filter(value => value.id !== material.id)];
     entry.draft = {file: null, title: '', category: entry.draft.category, rights: false};
-    entry.message = '자료를 업로드했습니다. 이 사이트에 접근할 수 있는 사용자와 공유됩니다.';
+    entry.message = '자료를 업로드했습니다. 공유 자료 이용이 승인된 계정과 공유됩니다.';
     // The acknowledgement is real; keep it visible if the following list refresh fails.
     await refresh(entry);
   } catch (error) {
     entry.error = error.message || '업로드하지 못했습니다. 연결을 확인해 주세요.';
+    if (error.status === 401 || error.status === 403) {
+      entry.canUpload = false; entry.accessDenied = true; entry.signInRequired = error.status === 401;
+      entry.materials = []; entry.nextCursor = null; entry.hasLoaded = false;
+    }
     if (!error.status || error.status >= 500) {
       // A lost response is not proof of a rejected write. Require a fresh list before a retry.
       entry.needsCheck = true;
@@ -158,7 +167,7 @@ function mount(container, week) {
   categoryGroup.append(categoryLabel, categoryInput); row.append(titleGroup, categoryGroup);
   const rightsLabel = node('label', 'material-rights'), rightsInput = node('input');
   rightsInput.type = 'checkbox'; rightsInput.name = 'rightsConfirmed'; rightsInput.checked = entry.draft.rights;
-  rightsLabel.append(rightsInput, node('span', '', '이 파일을 사이트의 허용된 사용자와 공유할 권한이 있으며, 개인정보·비밀정보가 포함되지 않았는지 확인했습니다.'));
+  rightsLabel.append(rightsInput, node('span', '', '이 파일을 승인된 계정과 공유할 권한이 있으며, 개인정보·비밀정보가 포함되지 않았는지 확인했습니다.'));
   const submit = node('button', 'button', '이 주차에 업로드'); submit.type = 'submit';
   fields.append(fileGroup, row, rightsLabel, submit); form.appendChild(fields);
   const status = node('p', 'material-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.setAttribute('aria-atomic', 'true');
@@ -166,14 +175,18 @@ function mount(container, week) {
   const listHeading = node('div', 'section-heading material-list-heading'), listTitle = node('h3', '', '함께 보는 자료'), refreshButton = node('button', 'button secondary small', '목록 새로고침'); refreshButton.type = 'button';
   listHeading.append(listTitle, refreshButton);
   const listError = node('p', 'notice warning'); listError.setAttribute('role', 'status');
+  const signIn = node('a', 'button secondary material-signin', '승인된 계정으로 로그인');
+  signIn.href = '/signin-with-chatgpt?return_to=' + encodeURIComponent('/#week/' + week); signIn.setAttribute('target', '_top');
   const list = node('ul', 'material-list'); list.setAttribute('aria-label', week + '주차 공유 자료');
   const empty = node('p', 'material-empty'), moreButton = node('button', 'button secondary small material-more', '더 보기'); moreButton.type = 'button';
-  container.append(form, status, errorBox, listHeading, listError, list, empty, moreButton);
+  container.append(form, status, errorBox, listHeading, listError, signIn, list, empty, moreButton);
   let lastMaterials, lastDraft = entry.draft;
   function paint() {
     const locked = entry.uploading || entry.loading || !entry.canUpload || entry.needsCheck;
     // Inputs stay editable after validation/server failures; only submission requires fresh permission.
     fields.disabled = entry.uploading;
+    form.hidden = entry.accessDenied;
+    signIn.hidden = !entry.signInRequired;
     submit.disabled = locked;
     submit.textContent = entry.uploading ? '업로드 중…' : '이 주차에 업로드';
     form.setAttribute('aria-busy', String(entry.uploading));

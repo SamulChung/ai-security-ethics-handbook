@@ -121,3 +121,22 @@ test('online upload script is loaded before the app and the shared-material sect
   const index = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
   assert(index.indexOf('src="uploads.js"') < index.indexOf('src="app.js"')); assert.match(app, /id="week-materials"/); assert.match(app, /materialPanel\?\.destroy\(\)/); assert.match(app, /HandbookUploads\.mount\(panel,Number\(r.id\)\)/); assert.doesNotMatch(source, /innerHTML|localStorage|sessionStorage/);
 });
+
+test('anonymous material access offers a top-level sign-in link without blocking public handbook navigation',async()=>{
+  const h=harness(),p=h.mount(6);await h.respond(0,{error:'공유 자료는 승인된 계정으로 로그인 후 이용할 수 있습니다.'},401);
+  const link=p.byClass('material-signin');assert(!link.hidden);assert.equal(link.href,'/signin-with-chatgpt?return_to='+encodeURIComponent('/#week/6'));assert.equal(link.attributes.target,'_top');assert(p.form().hidden);assert.match(p.container.textContent,/공유 자료는 승인된 계정으로 로그인 후 이용할 수 있습니다/);assert.equal(h.requests.length,1);
+  p.controller.destroy();const next=h.mount(7);assert(next);assert.equal(h.requests.at(-1).url,'/api/materials?week=7');
+});
+test('revoked list access removes previously displayed private metadata and download links',async()=>{
+  const h=harness(),p=h.mount();await h.load(p,{materials:[material()]});assert(p.byClass('material-download'));
+  p.button('목록 새로고침').fire('click');await h.respond(1,{error:'승인된 계정으로 로그인해 주세요.'},403);
+  assert.equal(p.byClass('material-download'),undefined);assert.equal(p.byClass('material-list').children.length,0);assert(p.form().hidden);assert(p.byClass('material-signin').hidden);assert(p.button('이 주차에 업로드').disabled);
+  p.button('목록 새로고침').fire('click');await h.respond(2,{materials:[],canUpload:true});assert(!p.form().hidden);assert(!p.button('이 주차에 업로드').disabled);
+});
+test('expired upload authentication hides cached files and requires sign-in without automatic retry',async()=>{
+  const h=harness(),p=h.mount();await h.load(p,{materials:[material()]});h.select(p);p.form().fire('submit');await h.respond(1,{error:'공유 자료는 승인된 계정으로 로그인 후 이용할 수 있습니다.'},401);
+  assert.equal(p.byClass('material-download'),undefined);assert(p.form().hidden);assert(!p.byClass('material-signin').hidden);assert(p.button('이 주차에 업로드').disabled);assert.equal(h.requests.length,2);
+});
+test('public handbook copy distinguishes open lessons from restricted shared uploads',()=>{
+  const app=fs.readFileSync(path.join(__dirname,'../src/app.js'),'utf8');assert.match(app,/강의·용어·공개 원문 자료는 로그인 없이/);assert.match(app,/별도로 승인된 계정끼리만 공유/);assert.doesNotMatch(app,/온라인 사이트와 공유 자료는 사이트 접근 권한이 있는 계정/);
+});
