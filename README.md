@@ -39,3 +39,13 @@ NIST 자료 표기: Republished courtesy of the National Institute of Standards 
 - npx tsc --noEmit
 
 2026-10-12 기준 73개 단위·화면 로직 테스트, 콘텐츠 무결성 검사, 타입 검사 및 빌드를 통과했습니다. 로컬 Worker/R2 HTTP 검사 13개에서 실제 파일 저장·주차 분리·접근 차단·20 MiB 업로드 및 다운로드 바이트 일치를 확인했습니다. 운영 사이트의 실제 사용자 계정으로 끝까지 수행한 브라우저 검사는 별도 확인이 필요합니다.
+
+### DiffPure PDF 저장 방식
+
+GitHub 연결 도구의 파일 전송 크기 제한에 맞추기 위해 DiffPure 논문 PDF 1개만 구조와 Flate 스트림을 무손실 재압축했습니다. 원문 23쪽의 추출 텍스트와 페이지 크기, 전 페이지 108dpi 렌더링 픽셀이 일치하는 것을 확인했습니다. 이미지를 축소하거나 화질을 낮추지 않았습니다. 원문 저자·인용·CC BY 4.0 조건은 그대로이며 원본은 https://proceedings.mlr.press/v162/nie22a/nie22a.pdf 에 있습니다.
+
+- 원본 SHA-256: ec5ff5e4398704a558cdc149f3e05d5f2d5b9b7aa4adfbb566eef414d72491ea
+- 저장 사본 SHA-256: 4e9930939949526e8fee02db04350520615e6343becc38b399a2dffeda956147
+- 원본 12,692,196 바이트 / 저장 사본 12,497,784 바이트
+
+다른 PDF 18개는 확인된 원문과 바이트가 동일합니다.
